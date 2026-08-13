@@ -135,6 +135,68 @@ def ensure_paired(client: httpx.Client, configuration: dict[str, str]) -> dict[s
     return {"device_id": device_id, "device_token": device_token, "endpoint": configuration["endpoint"]}
 
 
+def profile_catalog(client: httpx.Client, configuration: dict[str, str]) -> dict[str, list[dict[str, Any]]]:
+    """Read the actual request profiles available in the user's Seerr.
+
+    The Bridge sends only names and numeric IDs to CineFind. The Seerr URL and
+    API key stay local, exactly like when a title is requested.
+    """
+    headers = {
+        "X-Api-Key": configuration["seerr_api_key"],
+        "Accept": "application/json",
+        "User-Agent": "CineFind-Bridge/1.1",
+    }
+    catalog: dict[str, list[dict[str, Any]]] = {"movie": [], "tv": []}
+    try:
+        response = client.get(f"{configuration['seerr_url']}/api/v1/settings/main", headers=headers)
+        settings = response.json() if response.is_success else {}
+    except (httpx.HTTPError, ValueError):
+        logging.warning("Could not load Seerr quality profiles.")
+        return catalog
+    if not isinstance(settings, dict):
+        return catalog
+
+    for media_type, server_key in (("movie", "radarr"), ("tv", "sonarr")):
+        servers = settings.get(server_key)
+        if not isinstance(servers, list):
+            continue
+        for server in servers[:20]:
+            if not isinstance(server, dict):
+                continue
+            server_id = server.get("id")
+            if not isinstance(server_id, int) or server_id < 1:
+                continue
+            server_name = str(server.get("name") or ("Radarr" if media_type == "movie" else "Sonarr"))[:120]
+            profiles = server.get("profiles")
+            if not isinstance(profiles, list):
+                continue
+            for profile in profiles[:40]:
+                if not isinstance(profile, dict):
+                    continue
+                profile_id = profile.get("id")
+                profile_name = str(profile.get("name") or "").strip()[:120]
+                if isinstance(profile_id, int) and profile_id > 0 and profile_name:
+                    catalog[media_type].append({
+                        "serverId": server_id,
+                        "profileId": profile_id,
+                        "name": profile_name,
+                        "serverName": server_name,
+                    })
+    return catalog
+
+
+def publish_profile_catalog(
+    client: httpx.Client,
+    paired: dict[str, str],
+    configuration: dict[str, str],
+) -> None:
+    call_cinefind(client, paired["endpoint"], {
+        "action": "profile_catalog",
+        "deviceId": paired["device_id"],
+        "profiles": profile_catalog(client, configuration),
+    }, paired["device_token"])
+
+
 def create_seerr_request(client: httpx.Client, configuration: dict[str, str], job: dict[str, Any]) -> tuple[str, int | None, str | None]:
     media_type = job.get("mediaType")
     tmdb_id = job.get("tmdbId")
@@ -143,6 +205,13 @@ def create_seerr_request(client: httpx.Client, configuration: dict[str, str], jo
     payload: dict[str, Any] = {"mediaType": media_type, "mediaId": tmdb_id}
     if media_type == "tv":
         payload["seasons"] = "all"
+    options = job.get("requestOptions")
+    if isinstance(options, dict):
+        server_id = options.get("serverId")
+        profile_id = options.get("profileId")
+        if isinstance(server_id, int) and server_id > 0 and isinstance(profile_id, int) and profile_id > 0:
+            payload["serverId"] = server_id
+            payload["profileId"] = profile_id
     headers = {
         "X-Api-Key": configuration["seerr_api_key"],
         "Accept": "application/json",
@@ -180,9 +249,13 @@ def run_worker() -> None:
         return
     with httpx.Client(timeout=httpx.Timeout(20.0, connect=10.0), follow_redirects=False) as client:
         paired: dict[str, str] | None = None
+        profiles_published_at = 0.0
         while not STOP.is_set():
             try:
                 paired = paired or ensure_paired(client, configuration)
+                if time.time() - profiles_published_at > 6 * 60 * 60:
+                    publish_profile_catalog(client, paired, configuration)
+                    profiles_published_at = time.time()
                 payload = {"action": "poll", "deviceId": paired["device_id"]}
                 response = call_cinefind(client, paired["endpoint"], payload, paired["device_token"])
                 LAST_SUCCESS = time.time()

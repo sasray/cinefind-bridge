@@ -68,6 +68,19 @@ class SeerrRequestTests(unittest.TestCase):
         result = bridge.create_seerr_request(client, self.config(), {"mediaType": "movie", "tmdbId": 12})
         self.assertEqual(result, ("already_requested", None, None))
 
+    def test_passes_selected_quality_profile_to_seerr(self) -> None:
+        client = Mock()
+        client.post.return_value = self.response(201, {"id": 42})
+        result = bridge.create_seerr_request(client, self.config(), {
+            "mediaType": "tv",
+            "tmdbId": 12,
+            "requestOptions": {"serverId": 4, "profileId": 7},
+        })
+        self.assertEqual(result, ("requested", 42, None))
+        self.assertEqual(client.post.call_args.kwargs["json"], {
+            "mediaType": "tv", "mediaId": 12, "seasons": "all", "serverId": 4, "profileId": 7,
+        })
+
 
 if __name__ == "__main__":
     unittest.main()
