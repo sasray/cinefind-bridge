@@ -223,6 +223,20 @@ def profile_catalog(client: httpx.Client, configuration: dict[str, str]) -> dict
                 raw_profiles = []
             if not raw_profiles:
                 raw_profiles = direct_arr_profiles(client, server)
+            # The service-list API can omit its API key. Request the complete
+            # local service record only as a fallback; it never leaves the
+            # bridge or the user's network.
+            if not raw_profiles:
+                try:
+                    response = client.get(
+                        f"{configuration['seerr_url']}/api/v1/settings/{server_key}/{server_id}",
+                        headers=headers,
+                    )
+                    full_server = response.json() if response.is_success else None
+                except (httpx.HTTPError, ValueError):
+                    full_server = None
+                if isinstance(full_server, dict):
+                    raw_profiles = direct_arr_profiles(client, full_server)
             for profile in raw_profiles[:40]:
                 if not isinstance(profile, dict):
                     continue

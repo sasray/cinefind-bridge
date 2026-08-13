@@ -99,11 +99,12 @@ class SeerrRequestTests(unittest.TestCase):
         self.assertEqual(client.get.call_args_list[1].args[0], "http://seerr/api/v1/settings/radarr/2/profiles")
         self.assertEqual(client.get.call_args_list[3].args[0], "http://seerr/api/v1/settings/sonarr/3/profiles")
 
-    def test_falls_back_to_local_arr_profiles_when_seerr_profile_api_fails(self) -> None:
+    def test_falls_back_to_full_local_arr_service_when_seerr_profile_api_fails(self) -> None:
         client = Mock()
         client.get.side_effect = [
-            self.response(200, [{"id": 2, "name": "Movies", "hostname": "radarr", "port": 7878, "apiKey": "local-key"}]),
+            self.response(200, [{"id": 2, "name": "Movies"}]),
             self.response(500, {}),
+            self.response(200, {"id": 2, "name": "Movies", "hostname": "radarr", "port": 7878, "apiKey": "local-key"}),
             self.response(200, [{"id": 11, "name": "HD-1080p"}]),
             self.response(200, []),
         ]
@@ -112,8 +113,9 @@ class SeerrRequestTests(unittest.TestCase):
 
         self.assertEqual(catalog["movie"], [{"serverId": 2, "profileId": 11, "name": "HD-1080p", "serverName": "Movies"}])
         self.assertEqual(catalog["tv"], [])
-        self.assertEqual(client.get.call_args_list[2].args[0], "http://radarr:7878/api/v3/qualityprofile")
-        self.assertEqual(client.get.call_args_list[2].kwargs["headers"]["X-Api-Key"], "local-key")
+        self.assertEqual(client.get.call_args_list[2].args[0], "http://seerr/api/v1/settings/radarr/2")
+        self.assertEqual(client.get.call_args_list[3].args[0], "http://radarr:7878/api/v3/qualityprofile")
+        self.assertEqual(client.get.call_args_list[3].kwargs["headers"]["X-Api-Key"], "local-key")
 
 
 if __name__ == "__main__":
