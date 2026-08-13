@@ -1,0 +1,15 @@
+services:
+  cinefind-bridge:
+    image: ghcr.io/sasray/cinefind-bridge:latest
+    container_name: cinefind-bridge
+    restart: unless-stopped
+    environment:
+      CINEFIND_PAIRING_CODE: ${CINEFIND_PAIRING_CODE:?Create a pairing code in your CineFind account}
+      SEERR_URL: ${SEERR_URL:?Example: http://192.168.1.20:5055}
+      SEERR_API_KEY: ${SEERR_API_KEY:?Create this in Seerr settings}
+      CINEFIND_BRIDGE_NAME: ${CINEFIND_BRIDGE_NAME:-TrueNAS}
+    volumes:
+      - cinefind-bridge-data:/data
+
+volumes:
+  cinefind-bridge-data:

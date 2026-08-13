@@ -1,0 +1,35 @@
+annotations:
+  min_scale_version: 24.10.2.2
+app_version: 1.0.0
+capabilities: []
+categories:
+- media
+date_added: '2026-08-13'
+description: Securely sends CineFind movie and series discoveries to a private Seerr server.
+home: https://cinefindpro.com
+host_mounts: []
+icon: https://cinefindpro.com/favicon.png
+keywords:
+- cinefind
+- seerr
+- radarr
+- sonarr
+- media-request
+lib_version: 2.3.4
+lib_version_hash: 2e3a8847308fb2eb0da046018f287c73822c094b5950a10377c3235794ff1242
+maintainers:
+- name: CineFind
+  url: https://cinefindpro.com/support
+name: cinefind-bridge
+run_as_context:
+- description: Container [cinefind-bridge] runs as the TrueNAS apps user.
+  gid: 568
+  group_name: Host group is [apps]
+  uid: 568
+  user_name: Host user is [apps]
+sources:
+- https://github.com/sasray/cinefind-bridge
+- https://cinefindpro.com
+title: CineFind Bridge
+train: community
+version: 1.0.0
