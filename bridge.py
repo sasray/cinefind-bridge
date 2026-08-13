@@ -185,6 +185,37 @@ def positive_int(value: Any) -> int | None:
     return None
 
 
+def service_list(value: Any, service_key: str) -> list[dict[str, Any]]:
+    """Normalise the service-list variants returned by Seerr-compatible APIs."""
+    if isinstance(value, list):
+        return [item for item in value if isinstance(item, dict)]
+    if not isinstance(value, dict):
+        return []
+
+    # The documented API returns an array, while some compatible deployments
+    # wrap one configured service in either its name or `results`.
+    nested = value.get(service_key, value.get("results", value.get("data")))
+    if isinstance(nested, list):
+        return [item for item in nested if isinstance(item, dict)]
+    if isinstance(nested, dict):
+        return [nested]
+    return [value] if "id" in value else []
+
+
+def profile_list(value: Any) -> list[dict[str, Any]]:
+    """Normalise profile endpoint response variants without trusting extras."""
+    if isinstance(value, list):
+        return [item for item in value if isinstance(item, dict)]
+    if not isinstance(value, dict):
+        return []
+    nested = value.get("profiles", value.get("qualityProfiles", value.get("results", value.get("data"))))
+    if isinstance(nested, list):
+        return [item for item in nested if isinstance(item, dict)]
+    if isinstance(nested, dict):
+        return [nested]
+    return []
+
+
 def profile_catalog(client: httpx.Client, configuration: dict[str, str]) -> dict[str, list[dict[str, Any]]]:
     """Read the actual request profiles available in the user's Seerr.
 
@@ -207,13 +238,7 @@ def profile_catalog(client: httpx.Client, configuration: dict[str, str]) -> dict
         except (httpx.HTTPError, ValueError):
             logging.warning("Could not load configured Seerr %s servers.", server_key)
             continue
-        if isinstance(raw_servers, dict):
-            server_response = raw_servers
-            raw_servers = server_response.get(server_key, server_response.get("results"))
-            if not isinstance(raw_servers, list):
-                raw_servers = [server_response] if "id" in server_response else []
-        if not isinstance(raw_servers, list):
-            continue
+        raw_servers = service_list(raw_servers, server_key)
 
         for server in raw_servers[:20]:
             if not isinstance(server, dict):
@@ -231,10 +256,7 @@ def profile_catalog(client: httpx.Client, configuration: dict[str, str]) -> dict
             except (httpx.HTTPError, ValueError):
                 logging.warning("Could not load Seerr profiles for %s server %s.", server_key, server_id)
                 raw_profiles = []
-            if isinstance(raw_profiles, dict):
-                raw_profiles = raw_profiles.get("profiles", raw_profiles.get("results", []))
-            if not isinstance(raw_profiles, list):
-                raw_profiles = []
+            raw_profiles = profile_list(raw_profiles)
             if not raw_profiles:
                 raw_profiles = direct_arr_profiles(client, server)
             # The service-list API can omit its API key. Request the complete
@@ -249,8 +271,10 @@ def profile_catalog(client: httpx.Client, configuration: dict[str, str]) -> dict
                     full_server = response.json() if response.is_success else None
                 except (httpx.HTTPError, ValueError):
                     full_server = None
-                if isinstance(full_server, dict):
-                    raw_profiles = direct_arr_profiles(client, full_server)
+                for full_service in service_list(full_server, server_key)[:1]:
+                    raw_profiles = direct_arr_profiles(client, full_service)
+                    if raw_profiles:
+                        break
             for profile in raw_profiles[:40]:
                 if not isinstance(profile, dict):
                     continue

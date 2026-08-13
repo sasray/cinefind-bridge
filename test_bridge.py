@@ -133,6 +133,22 @@ class SeerrRequestTests(unittest.TestCase):
         self.assertEqual(client.get.call_args_list[1].args[0], "http://seerr/api/v1/settings/radarr/2/profiles")
         self.assertEqual(client.get.call_args_list[2].args[0], "http://radarr:7878/api/v3/qualityprofile")
 
+    def test_accepts_keyed_service_and_profile_objects(self) -> None:
+        client = Mock()
+        client.get.side_effect = [
+            self.response(200, {"radarr": {"id": "2", "name": "Movies"}}),
+            self.response(200, {"qualityProfiles": {"id": "11", "name": "HD-1080p"}}),
+            self.response(200, {"sonarr": {"id": "3", "name": "Series"}}),
+            self.response(200, {"profiles": [{"id": "12", "name": "WEB-1080p"}]}),
+        ]
+
+        catalog = bridge.profile_catalog(client, self.config())
+
+        self.assertEqual(catalog, {
+            "movie": [{"serverId": 2, "profileId": 11, "name": "HD-1080p", "serverName": "Movies"}],
+            "tv": [{"serverId": 3, "profileId": 12, "name": "WEB-1080p", "serverName": "Series"}],
+        })
+
 
 if __name__ == "__main__":
     unittest.main()
