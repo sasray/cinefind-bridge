@@ -135,6 +135,45 @@ def ensure_paired(client: httpx.Client, configuration: dict[str, str]) -> dict[s
     return {"device_id": device_id, "device_token": device_token, "endpoint": configuration["endpoint"]}
 
 
+def direct_arr_profiles(client: httpx.Client, server: dict[str, Any]) -> list[dict[str, Any]]:
+    """Return profiles from a configured Radarr/Sonarr instance as a fallback.
+
+    Some Seerr releases expose their service records normally but fail their
+    per-service profile endpoint. The service API key is used only inside the
+    user's local network; neither it nor the server address leaves the bridge.
+    """
+    api_key = server.get("apiKey")
+    hostname = str(server.get("hostname") or server.get("host") or "").strip()
+    port = server.get("port")
+    if not isinstance(api_key, str) or not api_key.strip() or not hostname:
+        return []
+    if hostname.startswith(("http://", "https://")):
+        parsed = urlsplit(hostname)
+        if not parsed.hostname or parsed.username or parsed.password:
+            return []
+        scheme = parsed.scheme
+        netloc = parsed.netloc
+        base_path = parsed.path.rstrip("/")
+    else:
+        scheme = "https" if server.get("useSsl") or server.get("ssl") else "http"
+        netloc = hostname if not isinstance(port, (int, str)) or not str(port).strip() else f"{hostname}:{str(port).strip()}"
+        base_path = ""
+    configured_base = str(server.get("baseUrl") or server.get("urlBase") or "").strip()
+    if configured_base:
+        base_path = f"{base_path}/{configured_base.lstrip('/')}".rstrip("/")
+    service_url = urlunsplit((scheme, netloc, base_path, "", ""))
+    try:
+        response = client.get(f"{service_url}/api/v3/qualityprofile", headers={
+            "X-Api-Key": api_key.strip(),
+            "Accept": "application/json",
+            "User-Agent": "CineFind-Bridge/1.2",
+        })
+        profiles = response.json() if response.is_success else []
+    except (httpx.HTTPError, ValueError):
+        return []
+    return profiles if isinstance(profiles, list) else []
+
+
 def profile_catalog(client: httpx.Client, configuration: dict[str, str]) -> dict[str, list[dict[str, Any]]]:
     """Read the actual request profiles available in the user's Seerr.
 
@@ -177,11 +216,13 @@ def profile_catalog(client: httpx.Client, configuration: dict[str, str]) -> dict
                 raw_profiles = response.json() if response.is_success else []
             except (httpx.HTTPError, ValueError):
                 logging.warning("Could not load Seerr profiles for %s server %s.", server_key, server_id)
-                continue
+                raw_profiles = []
             if isinstance(raw_profiles, dict):
                 raw_profiles = raw_profiles.get("profiles", raw_profiles.get("results", []))
             if not isinstance(raw_profiles, list):
-                continue
+                raw_profiles = []
+            if not raw_profiles:
+                raw_profiles = direct_arr_profiles(client, server)
             for profile in raw_profiles[:40]:
                 if not isinstance(profile, dict):
                     continue
