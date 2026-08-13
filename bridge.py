@@ -147,30 +147,42 @@ def profile_catalog(client: httpx.Client, configuration: dict[str, str]) -> dict
         "User-Agent": "CineFind-Bridge/1.1",
     }
     catalog: dict[str, list[dict[str, Any]]] = {"movie": [], "tv": []}
-    try:
-        response = client.get(f"{configuration['seerr_url']}/api/v1/settings/main", headers=headers)
-        settings = response.json() if response.is_success else {}
-    except (httpx.HTTPError, ValueError):
-        logging.warning("Could not load Seerr quality profiles.")
-        return catalog
-    if not isinstance(settings, dict):
-        return catalog
 
+    # Seerr exposes profiles separately for every configured Radarr/Sonarr
+    # instance. They are not included in /settings/main.
     for media_type, server_key in (("movie", "radarr"), ("tv", "sonarr")):
-        servers = settings.get(server_key)
-        if not isinstance(servers, list):
+        try:
+            response = client.get(f"{configuration['seerr_url']}/api/v1/settings/{server_key}", headers=headers)
+            raw_servers = response.json() if response.is_success else []
+        except (httpx.HTTPError, ValueError):
+            logging.warning("Could not load configured Seerr %s servers.", server_key)
             continue
-        for server in servers[:20]:
+        if isinstance(raw_servers, dict):
+            raw_servers = raw_servers.get(server_key, raw_servers.get("results", []))
+        if not isinstance(raw_servers, list):
+            continue
+
+        for server in raw_servers[:20]:
             if not isinstance(server, dict):
                 continue
             server_id = server.get("id")
             if not isinstance(server_id, int) or server_id < 1:
                 continue
-            server_name = str(server.get("name") or ("Radarr" if media_type == "movie" else "Sonarr"))[:120]
-            profiles = server.get("profiles")
-            if not isinstance(profiles, list):
+            server_name = str(server.get("name") or ("Radarr" if media_type == "movie" else "Sonarr")).strip()[:120]
+            try:
+                response = client.get(
+                    f"{configuration['seerr_url']}/api/v1/settings/{server_key}/{server_id}/profiles",
+                    headers=headers,
+                )
+                raw_profiles = response.json() if response.is_success else []
+            except (httpx.HTTPError, ValueError):
+                logging.warning("Could not load Seerr profiles for %s server %s.", server_key, server_id)
                 continue
-            for profile in profiles[:40]:
+            if isinstance(raw_profiles, dict):
+                raw_profiles = raw_profiles.get("profiles", raw_profiles.get("results", []))
+            if not isinstance(raw_profiles, list):
+                continue
+            for profile in raw_profiles[:40]:
                 if not isinstance(profile, dict):
                     continue
                 profile_id = profile.get("id")
