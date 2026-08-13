@@ -142,7 +142,7 @@ def direct_arr_profiles(client: httpx.Client, server: dict[str, Any]) -> list[di
     per-service profile endpoint. The service API key is used only inside the
     user's local network; neither it nor the server address leaves the bridge.
     """
-    api_key = server.get("apiKey")
+    api_key = server.get("apiKey") or server.get("api_key")
     hostname = str(server.get("hostname") or server.get("host") or "").strip()
     port = server.get("port")
     if not isinstance(api_key, str) or not api_key.strip() or not hostname:
@@ -174,6 +174,17 @@ def direct_arr_profiles(client: httpx.Client, server: dict[str, Any]) -> list[di
     return profiles if isinstance(profiles, list) else []
 
 
+def positive_int(value: Any) -> int | None:
+    if isinstance(value, bool):
+        return None
+    if isinstance(value, int) and value > 0:
+        return value
+    if isinstance(value, str) and value.isascii() and value.isdecimal():
+        result = int(value)
+        return result if result > 0 else None
+    return None
+
+
 def profile_catalog(client: httpx.Client, configuration: dict[str, str]) -> dict[str, list[dict[str, Any]]]:
     """Read the actual request profiles available in the user's Seerr.
 
@@ -197,15 +208,18 @@ def profile_catalog(client: httpx.Client, configuration: dict[str, str]) -> dict
             logging.warning("Could not load configured Seerr %s servers.", server_key)
             continue
         if isinstance(raw_servers, dict):
-            raw_servers = raw_servers.get(server_key, raw_servers.get("results", []))
+            server_response = raw_servers
+            raw_servers = server_response.get(server_key, server_response.get("results"))
+            if not isinstance(raw_servers, list):
+                raw_servers = [server_response] if "id" in server_response else []
         if not isinstance(raw_servers, list):
             continue
 
         for server in raw_servers[:20]:
             if not isinstance(server, dict):
                 continue
-            server_id = server.get("id")
-            if not isinstance(server_id, int) or server_id < 1:
+            server_id = positive_int(server.get("id"))
+            if server_id is None:
                 continue
             server_name = str(server.get("name") or ("Radarr" if media_type == "movie" else "Sonarr")).strip()[:120]
             try:
@@ -240,9 +254,9 @@ def profile_catalog(client: httpx.Client, configuration: dict[str, str]) -> dict
             for profile in raw_profiles[:40]:
                 if not isinstance(profile, dict):
                     continue
-                profile_id = profile.get("id")
+                profile_id = positive_int(profile.get("id"))
                 profile_name = str(profile.get("name") or "").strip()[:120]
-                if isinstance(profile_id, int) and profile_id > 0 and profile_name:
+                if profile_id is not None and profile_name:
                     catalog[media_type].append({
                         "serverId": server_id,
                         "profileId": profile_id,
