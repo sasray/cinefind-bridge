@@ -229,16 +229,27 @@ def profile_catalog(client: httpx.Client, configuration: dict[str, str]) -> dict
     }
     catalog: dict[str, list[dict[str, Any]]] = {"movie": [], "tv": []}
 
-    # Seerr exposes profiles separately for every configured Radarr/Sonarr
-    # instance. They are not included in /settings/main.
+    # `/service` is deliberately used here instead of `/settings`: Seerr
+    # permits ordinary request users to inspect the service and its profiles,
+    # while `/settings` is restricted to Seerr administrators. The response
+    # omits every private Arr setting and API key.
     for media_type, server_key in (("movie", "radarr"), ("tv", "sonarr")):
         try:
-            response = client.get(f"{configuration['seerr_url']}/api/v1/settings/{server_key}", headers=headers)
+            response = client.get(f"{configuration['seerr_url']}/api/v1/service/{server_key}", headers=headers)
             raw_servers = response.json() if response.is_success else []
         except (httpx.HTTPError, ValueError):
-            logging.warning("Could not load configured Seerr %s servers.", server_key)
-            continue
+            raw_servers = []
         raw_servers = service_list(raw_servers, server_key)
+
+        # Keep a narrow compatibility fallback for older Seerr builds. A
+        # standard user key never needs this branch on current Seerr.
+        if not raw_servers:
+            try:
+                response = client.get(f"{configuration['seerr_url']}/api/v1/settings/{server_key}", headers=headers)
+                raw_servers = service_list(response.json() if response.is_success else [], server_key)
+            except (httpx.HTTPError, ValueError):
+                logging.warning("Could not load configured Seerr %s servers.", server_key)
+                continue
 
         for server in raw_servers[:20]:
             if not isinstance(server, dict):
@@ -249,7 +260,7 @@ def profile_catalog(client: httpx.Client, configuration: dict[str, str]) -> dict
             server_name = str(server.get("name") or ("Radarr" if media_type == "movie" else "Sonarr")).strip()[:120]
             try:
                 response = client.get(
-                    f"{configuration['seerr_url']}/api/v1/settings/{server_key}/{server_id}/profiles",
+                    f"{configuration['seerr_url']}/api/v1/service/{server_key}/{server_id}",
                     headers=headers,
                 )
                 raw_profiles = response.json() if response.is_success else []
@@ -257,6 +268,19 @@ def profile_catalog(client: httpx.Client, configuration: dict[str, str]) -> dict
                 logging.warning("Could not load Seerr profiles for %s server %s.", server_key, server_id)
                 raw_profiles = []
             raw_profiles = profile_list(raw_profiles)
+
+            # Older Seerr releases only exposed a Radarr profile endpoint in
+            # the administrator-only settings API. Use it only as a fallback;
+            # current Seerr returns both Radarr and Sonarr profiles above.
+            if not raw_profiles:
+                try:
+                    response = client.get(
+                        f"{configuration['seerr_url']}/api/v1/settings/{server_key}/{server_id}/profiles",
+                        headers=headers,
+                    )
+                    raw_profiles = profile_list(response.json() if response.is_success else [])
+                except (httpx.HTTPError, ValueError):
+                    raw_profiles = []
             if not raw_profiles:
                 raw_profiles = direct_arr_profiles(client, server)
             # The service-list API can omit its API key. Request the complete
