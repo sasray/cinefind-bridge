@@ -11,7 +11,7 @@ services:
       RADARR_API_KEY: ${RADARR_API_KEY:-}
       SONARR_URL: ${SONARR_URL:-}
       SONARR_API_KEY: ${SONARR_API_KEY:-}
-      CINEFIND_BRIDGE_NAME: ${CINEFIND_BRIDGE_NAME:-TrueNAS}
+      CINEFIND_BRIDGE_NAME: ${CINEFIND_BRIDGE_NAME:-Docker}
     volumes:
       - cinefind-bridge-data:/data
 

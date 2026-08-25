@@ -1,7 +1,8 @@
-# CineFind Bridge for TrueNAS
+# CineFind Media Server Bridge
 
-CineFind Bridge is a local companion for users who run Seerr, Radarr or Sonarr
-on a private network such as `192.168.x.x`. It retrieves a signed,
+CineFind Bridge is a local Docker companion for users who run Seerr, Radarr or
+Sonarr on a private network such as `192.168.x.x`. It works with Docker Desktop,
+Docker Compose, TrueNAS, Synology and Unraid. It retrieves a signed,
 account-scoped queue from CineFind over outbound HTTPS and asks the selected
 local service to request a movie or series. Seerr remains fully supported, but
 is no longer required when Radarr and/or Sonarr are configured directly.
@@ -13,9 +14,52 @@ local volume stores only a revocable device token with file permissions
 root folders are shown by a short friendly name such as `Movies`, never by
 their full path.
 
+## Install with Docker Compose
+
+1. Install Docker Desktop on Windows/macOS, or Docker Engine with the Compose
+   plugin on Linux.
+2. In CineFind, open **Account → Media servers** and create a one-time pairing
+   code. It expires after 15 minutes.
+3. Create an empty folder and save the included `docker-compose.yml` in it.
+4. In that folder, create a `.env` file:
+
+   ```dotenv
+   CINEFIND_PAIRING_CODE=YOUR-CODE
+   CINEFIND_BRIDGE_NAME=My media server
+
+   SEERR_URL=http://192.168.1.10:5055
+   SEERR_API_KEY=
+   RADARR_URL=http://192.168.1.10:7878
+   RADARR_API_KEY=
+   SONARR_URL=http://192.168.1.10:8989
+   SONARR_API_KEY=
+   ```
+
+   Configure at least one complete URL/API-key pair and leave both fields empty
+   for unused services. Radarr and Sonarr expose their API key under
+   **Settings → General → Security**.
+5. Start and verify the Bridge:
+
+   ```sh
+   docker compose up -d
+   docker compose logs -f cinefind-bridge
+   ```
+
+The device will appear in **Account → Media servers**. No host port needs to
+be published. When a local service runs on another device, use its LAN IP. If
+it runs on the same Docker host, use its Docker service name, the host's LAN
+IP, or `host.docker.internal` on Docker Desktop — not `localhost`.
+
+To update later:
+
+```sh
+docker compose pull
+docker compose up -d
+```
+
 ## Install in TrueNAS
 
-1. In CineFind, open **Account → CineFind Bridge · TrueNAS** and create a
+1. In CineFind, open **Account → Media servers** and create a
    pairing code.
 2. Install the `cinefind-bridge` app from the CineFind catalog/release.
 3. Paste the code and configure at least one service:
@@ -30,10 +74,11 @@ their full path.
 The pairing code expires after 15 minutes and is single use. Use **Disconnect**
 in your CineFind account to revoke an installed server immediately.
 
-## Custom App / Docker Compose beta
+## TrueNAS Custom App
 
-Use `docker-compose.yml` or create a TrueNAS Custom App with these environment
-variables:
+Create a TrueNAS Custom App with the image
+`ghcr.io/sasray/cinefind-bridge:latest`, the persistent `/data` volume and
+these environment variables:
 
 - `CINEFIND_PAIRING_CODE` — one-time code from CineFind.
 - `SEERR_URL` / `SEERR_API_KEY` — optional local Seerr connection; `/api/v1`

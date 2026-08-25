@@ -1,4 +1,4 @@
-"""CineFind Bridge: a local media-request relay for TrueNAS.
+"""CineFind Bridge: a local Docker media-request relay.
 
 The bridge only makes outbound HTTPS calls to CineFind. Its Seerr, Radarr and
 Sonarr URLs and API keys are read locally and never leave this container.
@@ -90,7 +90,7 @@ def config_from_environment() -> dict[str, str]:
         "sonarr_url": optional_service_url("SONARR_URL", "Sonarr", "/api/v3"),
         "sonarr_api_key": os.environ.get("SONARR_API_KEY", "").strip(),
         "pairing_code": os.environ.get("CINEFIND_PAIRING_CODE", "").strip(),
-        "display_name": os.environ.get("CINEFIND_BRIDGE_NAME", f"TrueNAS ({socket.gethostname()})").strip()[:80],
+        "display_name": os.environ.get("CINEFIND_BRIDGE_NAME", f"Docker ({socket.gethostname()})").strip()[:80],
     }
     for target in SERVICE_TARGETS:
         if bool(configuration[f"{target}_url"]) != bool(configuration[f"{target}_api_key"]):
@@ -161,20 +161,20 @@ def ensure_paired(client: httpx.Client, configuration: dict[str, str]) -> dict[s
     if paired:
         return paired
     if not configuration["pairing_code"]:
-        raise BridgeError("Set CINEFIND_PAIRING_CODE in the TrueNAS app, then restart it.")
+        raise BridgeError("Set CINEFIND_PAIRING_CODE in the Bridge configuration, then restart it.")
     if not configured_services(configuration):
         raise BridgeError("Configure at least one local Seerr, Radarr or Sonarr service.")
     response = call_cinefind(client, configuration["endpoint"], {
         "action": "pair",
         "pairingCode": configuration["pairing_code"],
-        "displayName": configuration["display_name"] or "TrueNAS",
+        "displayName": configuration["display_name"] or "Docker",
     })
     device_id = response.get("deviceId")
     device_token = response.get("deviceToken")
     if not isinstance(device_id, str) or not isinstance(device_token, str) or len(device_token) < 32:
         raise BridgeError("CineFind returned an invalid pairing response.")
     save_paired_device(configuration["endpoint"], device_id, device_token)
-    logging.info("Paired as %s", response.get("displayName", "TrueNAS"))
+    logging.info("Paired as %s", response.get("displayName", "Docker"))
     return {"device_id": device_id, "device_token": device_token, "endpoint": configuration["endpoint"]}
 
 
