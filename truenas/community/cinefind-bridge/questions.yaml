@@ -1,6 +1,6 @@
 groups:
   - name: CineFind Bridge Configuration
-    description: Connect CineFind to your local Seerr service without exposing it online.
+    description: Connect CineFind to local Seerr, Radarr and Sonarr services without exposing them online. Configure at least one service.
   - name: Storage Configuration
     description: Store the revocable device token locally on TrueNAS.
 
@@ -20,19 +20,49 @@ questions:
             required: true
             private: true
         - variable: seerr_url
-          label: Local Seerr URL
-          description: Your local Seerr URL, for example http://192.168.178.195:5055. Do not use a public proxy URL.
+          label: Local Seerr URL (Optional)
+          description: Your local Seerr URL, for example http://192.168.178.195:5055. Leave both Seerr fields empty if unused.
           schema:
             type: string
             default: ''
-            required: true
+            required: false
         - variable: seerr_api_key
-          label: Seerr API Key
+          label: Seerr API Key (Optional)
           description: Create this key in Seerr. It stays inside this TrueNAS app and is never sent to CineFind.
           schema:
             type: string
             default: ''
-            required: true
+            required: false
+            private: true
+        - variable: radarr_url
+          label: Local Radarr URL (Optional)
+          description: Your local Radarr URL, for example http://192.168.178.195:7878. Used for movie requests.
+          schema:
+            type: string
+            default: ''
+            required: false
+        - variable: radarr_api_key
+          label: Radarr API Key (Optional)
+          description: Found under Radarr Settings → General → Security. It stays local and is never sent to CineFind.
+          schema:
+            type: string
+            default: ''
+            required: false
+            private: true
+        - variable: sonarr_url
+          label: Local Sonarr URL (Optional)
+          description: Your local Sonarr URL, for example http://192.168.178.195:8989. Used for series requests.
+          schema:
+            type: string
+            default: ''
+            required: false
+        - variable: sonarr_api_key
+          label: Sonarr API Key (Optional)
+          description: Found under Sonarr Settings → General → Security. It stays local and is never sent to CineFind.
+          schema:
+            type: string
+            default: ''
+            required: false
             private: true
         - variable: display_name
           label: Device Name

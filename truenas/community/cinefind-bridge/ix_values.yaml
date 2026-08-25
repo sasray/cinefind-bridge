@@ -13,6 +13,10 @@ bridge:
   pairing_code: ''
   seerr_url: ''
   seerr_api_key: ''
+  radarr_url: ''
+  radarr_api_key: ''
+  sonarr_url: ''
+  sonarr_api_key: ''
   display_name: TrueNAS
 run_as:
   user: 568
