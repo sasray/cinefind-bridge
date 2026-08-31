@@ -1,0 +1,8 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512" role="img" aria-labelledby="title">
+  <title id="title">CineFind Bridge</title>
+  <rect width="512" height="512" rx="128" fill="#ffbd00"/>
+  <g fill="none" stroke="#0b0d10" stroke-width="28" stroke-linecap="round" stroke-linejoin="round">
+    <rect x="112" y="104" width="288" height="304" rx="34"/>
+    <path d="M112 192h288M112 320h288M196 104v304M316 104v304"/>
+  </g>
+</svg>
