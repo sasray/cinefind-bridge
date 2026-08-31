@@ -3,6 +3,10 @@ groups:
     description: Connect CineFind to local Seerr, Radarr and Sonarr services without exposing them online. Configure at least one service.
   - name: Storage Configuration
     description: Store the revocable device token locally on TrueNAS.
+  - name: Labels Configuration
+    description: Configure additional container labels.
+  - name: Resources Configuration
+    description: Configure CPU and memory limits.
 
 questions:
   - variable: bridge
@@ -147,3 +151,64 @@ questions:
                       schema:
                         type: hostpath
                         required: true
+  - variable: labels
+    label: ''
+    group: Labels Configuration
+    schema:
+      type: list
+      default: []
+      items:
+        - variable: label
+          label: Label
+          schema:
+            type: dict
+            attrs:
+              - variable: key
+                label: Key
+                schema:
+                  type: string
+                  required: true
+              - variable: value
+                label: Value
+                schema:
+                  type: string
+                  required: true
+              - variable: containers
+                label: Containers
+                description: Containers where the label should be applied.
+                schema:
+                  type: list
+                  items:
+                    - variable: container
+                      label: Container
+                      schema:
+                        type: string
+                        required: true
+                        enum:
+                          - value: cinefind-bridge
+                            description: CineFind Bridge
+  - variable: resources
+    label: ''
+    group: Resources Configuration
+    schema:
+      type: dict
+      attrs:
+        - variable: limits
+          label: Limits
+          schema:
+            type: dict
+            attrs:
+              - variable: cpus
+                label: CPUs
+                description: CPU limit for CineFind Bridge.
+                schema:
+                  type: int
+                  default: 1
+                  required: true
+              - variable: memory
+                label: Memory (in MB)
+                description: Memory limit for CineFind Bridge.
+                schema:
+                  type: int
+                  default: 256
+                  required: true
