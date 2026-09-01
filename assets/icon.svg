@@ -1,8 +1,8 @@
-<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512" role="img" aria-labelledby="title">
-  <title id="title">CineFind Bridge</title>
-  <rect width="512" height="512" rx="128" fill="#ffbd00"/>
-  <g fill="none" stroke="#0b0d10" stroke-width="28" stroke-linecap="round" stroke-linejoin="round">
-    <rect x="112" y="104" width="288" height="304" rx="34"/>
-    <path d="M112 192h288M112 320h288M196 104v304M316 104v304"/>
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 128 128" role="img" aria-labelledby="title">
+  <title id="title">CineFindPro</title>
+  <rect x="8" y="8" width="112" height="112" rx="28" fill="#ffc400"/>
+  <g transform="translate(28 28) scale(3)" fill="none" stroke="#111217" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+    <rect x="3" y="3" width="18" height="18" rx="2"/>
+    <path d="M7 3v18M3 7.5h4M3 12h18M3 16.5h4M17 3v18M17 7.5h4M17 16.5h4"/>
   </g>
 </svg>
