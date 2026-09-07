@@ -861,13 +861,20 @@ def run_worker() -> None:
         return
     with httpx.Client(timeout=httpx.Timeout(20.0, connect=10.0), follow_redirects=False) as client:
         paired: dict[str, str] | None = None
-        profiles_published_at = 0.0
+        profiles_attempted_at = 0.0
         while not STOP.is_set():
             try:
                 paired = paired or ensure_paired(client, configuration)
-                if time.time() - profiles_published_at > 6 * 60 * 60:
-                    publish_profile_catalog(client, paired, configuration)
-                    profiles_published_at = time.time()
+                if time.time() - profiles_attempted_at > 6 * 60 * 60:
+                    profiles_attempted_at = time.time()
+                    try:
+                        publish_profile_catalog(client, paired, configuration)
+                    except BridgeError as error:
+                        # Profile choices improve the website UI, but they are
+                        # not required to receive and execute queued requests.
+                        # Keep polling when the cloud schema/function is
+                        # temporarily behind this Bridge version.
+                        logging.warning("Profile catalog sync failed; continuing without it: %s", error)
                 payload = {"action": "poll", "deviceId": paired["device_id"]}
                 response = call_cinefind(client, paired["endpoint"], payload, paired["device_token"])
                 LAST_SUCCESS = time.time()
