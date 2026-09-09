@@ -103,6 +103,19 @@ class SeerrRequestTests(unittest.TestCase):
         self.assertEqual(result, ("requested", 42, None))
         self.assertEqual(client.post.call_args.kwargs["json"], {"mediaType": "tv", "mediaId": 12, "seasons": "all"})
 
+    def test_passes_only_selected_seasons_to_seerr(self) -> None:
+        client = Mock()
+        client.post.return_value = self.response(201, {"id": 42})
+
+        result = bridge.create_seerr_request(client, self.config(), {
+            "mediaType": "tv",
+            "tmdbId": 12,
+            "requestOptions": {"target": "seerr", "seasons": [3, 1, 3]},
+        })
+
+        self.assertEqual(result, ("requested", 42, None))
+        self.assertEqual(client.post.call_args.kwargs["json"]["seasons"], [1, 3])
+
     def test_marks_duplicate_request(self) -> None:
         client = Mock()
         client.post.return_value = self.response(409, {})
@@ -335,7 +348,81 @@ class DirectArrRequestTests(unittest.TestCase):
         self.assertEqual(payload["rootFolderPath"], "/media/series")
         self.assertEqual(payload["languageProfileId"], 1)
         self.assertEqual(payload["monitorNewItems"], "all")
-        self.assertEqual(payload["addOptions"], {"monitor": "all", "searchForMissingEpisodes": True})
+        self.assertEqual(payload["addOptions"], {"ignoreEpisodesWithFiles": True, "searchForMissingEpisodes": True})
+
+    def test_adds_only_selected_sonarr_seasons_and_searches_them(self) -> None:
+        client = Mock()
+        client.get.side_effect = [
+            self.response(200, [{
+                "tmdbId": 1399, "tvdbId": 121361, "title": "Game of Thrones",
+                "titleSlug": "game-of-thrones", "seriesType": "standard",
+                "seasons": [
+                    {"seasonNumber": 0, "monitored": False},
+                    {"seasonNumber": 1, "monitored": True},
+                    {"seasonNumber": 2, "monitored": True},
+                    {"seasonNumber": 3, "monitored": True},
+                ],
+            }]),
+            self.response(200, []),
+            self.response(200, [{"id": 9, "name": "WEB-1080p"}]),
+            self.response(200, [{"id": 4, "path": "/media/series"}]),
+            self.response(404, {"message": "Not found"}),
+        ]
+        client.post.side_effect = [self.response(201, {"id": 84}), self.response(201, {"id": 91})]
+
+        result = bridge.create_sonarr_request(client, self.config(), {
+            "mediaType": "tv", "tmdbId": 1399,
+            "requestOptions": {
+                "target": "sonarr", "profileId": 9, "rootFolderId": 4, "seasons": [2],
+            },
+        })
+
+        self.assertEqual(result, ("requested", 84, None))
+        series_payload = client.post.call_args_list[0].kwargs["json"]
+        self.assertEqual(
+            [(season["seasonNumber"], season["monitored"]) for season in series_payload["seasons"]],
+            [(0, False), (1, False), (2, True), (3, False)],
+        )
+        self.assertEqual(series_payload["addOptions"]["searchForMissingEpisodes"], False)
+        self.assertEqual(client.post.call_args_list[1].kwargs["json"], {
+            "name": "SeasonSearch", "seriesId": 84, "seasonNumber": 2,
+        })
+
+    def test_adds_a_selected_season_to_an_existing_sonarr_series(self) -> None:
+        client = Mock()
+        client.get.side_effect = [
+            self.response(200, [{"tmdbId": 1399, "tvdbId": 121361, "title": "Game of Thrones"}]),
+            self.response(200, [{
+                "id": 81, "tvdbId": 121361, "title": "Game of Thrones", "monitored": True,
+                "seasons": [
+                    {"seasonNumber": 1, "monitored": True},
+                    {"seasonNumber": 2, "monitored": False},
+                    {"seasonNumber": 3, "monitored": False},
+                ],
+            }]),
+            self.response(200, [
+                {"id": 101, "seasonNumber": 2, "monitored": False},
+                {"id": 102, "seasonNumber": 3, "monitored": False},
+            ]),
+        ]
+        client.put.side_effect = [self.response(200, {"id": 81}), self.response(202, {})]
+        client.post.return_value = self.response(201, {"id": 92})
+
+        result = bridge.create_sonarr_request(client, self.config(), {
+            "mediaType": "tv", "tmdbId": 1399,
+            "requestOptions": {"target": "sonarr", "seasons": [2]},
+        })
+
+        self.assertEqual(result, ("requested", 81, None))
+        updated_series = client.put.call_args_list[0].kwargs["json"]
+        self.assertEqual(
+            [(season["seasonNumber"], season["monitored"]) for season in updated_series["seasons"]],
+            [(1, True), (2, True), (3, False)],
+        )
+        self.assertEqual(client.put.call_args_list[1].kwargs["json"]["episodeIds"], [101])
+        self.assertEqual(client.post.call_args.kwargs["json"], {
+            "name": "SeasonSearch", "seriesId": 81, "seasonNumber": 2,
+        })
 
     def test_sonarr_duplicate_check_avoids_profile_and_post_calls(self) -> None:
         client = Mock()

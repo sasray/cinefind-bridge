@@ -526,9 +526,12 @@ def create_seerr_request(client: httpx.Client, configuration: dict[str, str], jo
     if media_type not in {"movie", "tv"} or not isinstance(tmdb_id, int) or isinstance(tmdb_id, bool) or tmdb_id < 1:
         return "failed", None, "CineFind sent an invalid media job."
     payload: dict[str, Any] = {"mediaType": media_type, "mediaId": tmdb_id}
-    if media_type == "tv":
-        payload["seasons"] = "all"
     options = job.get("requestOptions")
+    selected_seasons, season_failure = requested_seasons(options, media_type)
+    if season_failure:
+        return "failed", None, season_failure
+    if media_type == "tv":
+        payload["seasons"] = selected_seasons or "all"
     if isinstance(options, dict):
         option_target = options.get("target")
         if option_target is not None and option_target != "seerr":
@@ -629,6 +632,102 @@ def local_json_post(
     if body is None:
         return response, None, f"{service_name} returned an invalid response."
     return response, body, None
+
+
+def local_json_put(
+    client: httpx.Client,
+    configuration: dict[str, str],
+    target: str,
+    resource: str,
+    payload: dict[str, Any],
+) -> tuple[Any | None, Any | None, str | None]:
+    """Issue a bounded local PUT without exposing local credentials."""
+    service_name = target.title()
+    base_url = configuration[f"{target}_url"]
+    headers = {**arr_headers(configuration, target), "Content-Type": "application/json"}
+    try:
+        response = client.put(
+            f"{base_url}/api/v3/{resource}",
+            json=payload,
+            headers=headers,
+            timeout=LOCAL_REQUEST_TIMEOUT,
+        )
+    except httpx.HTTPError:
+        return None, None, f"Local {service_name} could not be reached."
+    try:
+        body = response.json()
+    except ValueError:
+        body = None
+    if not response.is_success:
+        return response, body, f"{service_name} returned {response.status_code}."
+    if body is None:
+        return response, None, f"{service_name} returned an invalid response."
+    return response, body, None
+
+
+def requested_seasons(options: Any, media_type: Any) -> tuple[list[int] | None, str | None]:
+    """Return a validated one-based season list; None means every season."""
+    if media_type != "tv" or not isinstance(options, dict) or options.get("seasons") in (None, "all"):
+        return None, None
+    raw = options.get("seasons")
+    if not isinstance(raw, list):
+        return None, "CineFind sent an invalid season selection."
+    seasons: list[int] = []
+    for value in raw:
+        season = positive_int(value)
+        if season is None or season in seasons:
+            if season is None:
+                return None, "CineFind sent an invalid season selection."
+            continue
+        seasons.append(season)
+    seasons.sort()
+    if not seasons or len(seasons) > 100:
+        return None, "CineFind sent an invalid season selection."
+    return seasons, None
+
+
+def sonarr_season_list(
+    value: Any,
+    selected: list[int] | None,
+    *,
+    preserve_monitored: bool = False,
+) -> tuple[list[dict[str, Any]], str | None]:
+    """Build Sonarr's season monitor list while excluding specials by default."""
+    seasons = dictionary_list(value)
+    available = {
+        season
+        for item in seasons
+        if (season := positive_int(item.get("seasonNumber"))) is not None
+    }
+    if selected and not set(selected).issubset(available):
+        return [], "One or more selected seasons are not available in Sonarr."
+    requested = set(selected) if selected else available
+    return [
+        {
+            **item,
+            "monitored": (
+                preserve_monitored and item.get("monitored") is True
+            ) or positive_int(item.get("seasonNumber")) in requested,
+        }
+        for item in seasons
+    ], None
+
+
+def search_sonarr_seasons(
+    client: httpx.Client,
+    configuration: dict[str, str],
+    series_id: int,
+    seasons: list[int],
+) -> str | None:
+    for season in seasons:
+        _response, _body, failure = local_json_post(client, configuration, "sonarr", "command", {
+            "name": "SeasonSearch",
+            "seriesId": series_id,
+            "seasonNumber": season,
+        })
+        if failure:
+            return failure
+    return None
 
 
 def matching_record(value: Any, key: str, expected: int) -> dict[str, Any] | None:
@@ -774,6 +873,10 @@ def create_sonarr_request(
     if candidate is None or tvdb_id is None:
         return "failed", None, "Sonarr could not find that TMDB series."
 
+    selected_seasons, season_failure = requested_seasons(job.get("requestOptions"), "tv")
+    if season_failure:
+        return "failed", None, season_failure
+
     _response, existing, failure = local_json_get(
         client, configuration, "sonarr", "series", params={"tvdbId": tvdb_id},
     )
@@ -781,7 +884,45 @@ def create_sonarr_request(
         return "failed", None, failure
     duplicate = matching_record(existing, "tvdbId", tvdb_id)
     if duplicate is not None:
-        return "already_requested", positive_int(duplicate.get("id")), None
+        series_id = positive_int(duplicate.get("id"))
+        if selected_seasons is None:
+            return "already_requested", series_id, None
+        if series_id is None:
+            return "failed", None, "Sonarr returned an invalid existing series."
+        updated_seasons, season_failure = sonarr_season_list(
+            duplicate.get("seasons"), selected_seasons, preserve_monitored=True,
+        )
+        if season_failure:
+            return "failed", None, season_failure
+        selected_set = set(selected_seasons)
+        update_payload = {**duplicate, "monitored": True, "seasons": updated_seasons}
+        _response, updated, failure = local_json_put(client, configuration, "sonarr", "series", update_payload)
+        if failure:
+            return "failed", None, failure
+
+        _response, raw_episodes, failure = local_json_get(
+            client, configuration, "sonarr", "episode", params={"seriesId": series_id},
+        )
+        if failure:
+            return "failed", None, failure
+        episode_ids = [
+            episode_id
+            for episode in dictionary_list(raw_episodes)
+            if positive_int(episode.get("seasonNumber")) in selected_set
+            and episode.get("monitored") is not True
+            and (episode_id := positive_int(episode.get("id"))) is not None
+        ]
+        if episode_ids:
+            _response, _body, failure = local_json_put(client, configuration, "sonarr", "episode/monitor", {
+                "episodeIds": episode_ids,
+                "monitored": True,
+            })
+            if failure:
+                return "failed", None, failure
+        failure = search_sonarr_seasons(client, configuration, series_id, selected_seasons)
+        if failure:
+            return "failed", None, failure
+        return "requested", positive_int(updated.get("id")) if isinstance(updated, dict) else series_id, None
 
     profile_id, root_path, failure = resolve_arr_options(
         client, configuration, "sonarr", job.get("requestOptions"),
@@ -808,6 +949,9 @@ def create_sonarr_request(
                 if (profile_id := positive_int(language.get("id"))) is not None
             ), None)
 
+    monitored_seasons, season_failure = sonarr_season_list(candidate.get("seasons"), selected_seasons)
+    if season_failure:
+        return "failed", None, season_failure
     payload = dict(candidate)
     payload.pop("id", None)
     payload.pop("languageProfileId", None)
@@ -818,7 +962,11 @@ def create_sonarr_request(
         "monitored": True,
         "seasonFolder": True,
         "monitorNewItems": "all",
-        "addOptions": {"monitor": "all", "searchForMissingEpisodes": True},
+        "seasons": monitored_seasons,
+        "addOptions": {
+            "ignoreEpisodesWithFiles": True,
+            "searchForMissingEpisodes": selected_seasons is None,
+        },
     })
     if language_profile_id is not None:
         payload["languageProfileId"] = language_profile_id
@@ -828,6 +976,12 @@ def create_sonarr_request(
             return "already_requested", positive_int(body.get("id")) if isinstance(body, dict) else None, None
         return "failed", None, failure
     request_id = positive_int(body.get("id")) if isinstance(body, dict) else None
+    if selected_seasons is not None:
+        if request_id is None:
+            return "failed", None, "Sonarr did not return the new series id."
+        failure = search_sonarr_seasons(client, configuration, request_id, selected_seasons)
+        if failure:
+            return "failed", None, failure
     return "requested", request_id, None
 
 
