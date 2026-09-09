@@ -66,6 +66,19 @@ class BridgeConfigTests(unittest.TestCase):
             finally:
                 bridge.CONFIG_PATH = original
 
+    def test_clears_rejected_device_token_for_repairing(self) -> None:
+        with tempfile.TemporaryDirectory() as temp:
+            original = bridge.CONFIG_PATH
+            try:
+                bridge.CONFIG_PATH = Path(temp) / "config.json"
+                bridge.save_paired_device("https://example.test/bridge", "device-id", "x" * 40)
+
+                bridge.clear_paired_device()
+
+                self.assertIsNone(bridge.load_paired_device())
+            finally:
+                bridge.CONFIG_PATH = original
+
 
 class SeerrRequestTests(unittest.TestCase):
     def config(self) -> dict[str, str]:

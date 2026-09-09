@@ -131,6 +131,14 @@ def save_paired_device(endpoint: str, device_id: str, device_token: str) -> None
     CONFIG_PATH.chmod(0o600)
 
 
+def clear_paired_device() -> None:
+    """Remove a rejected device token so the configured code can pair again."""
+    try:
+        CONFIG_PATH.unlink(missing_ok=True)
+    except OSError as error:
+        raise BridgeError("Bridge pairing data could not be reset. Check the /data volume permissions.") from error
+
+
 def call_cinefind(
     client: httpx.Client,
     endpoint: str,
@@ -895,7 +903,10 @@ def run_worker() -> None:
                 LAST_ERROR = str(error)
                 logging.warning("Bridge cycle failed: %s", error)
                 if "authentication failed" in str(error).lower():
+                    clear_paired_device()
                     paired = None
+                    profiles_attempted_at = 0.0
+                    logging.info("Removed the rejected device token; the configured pairing code will be tried next.")
             except Exception:
                 LAST_ERROR = "Unexpected bridge error."
                 logging.exception("Unexpected bridge cycle error")
